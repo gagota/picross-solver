@@ -24,7 +24,7 @@ showTkinter = True
 showProbas = False
 
 # ---------- Grids ----------
-np.random.seed(8) # Il galère de ouf sur la seed 3 avec la taille 20x20
+#np.random.seed(8) # Il galère de ouf sur la seed 3 avec la taille 20x20
 grid = np.random.randint(0,2,gridSize)
 solutionGrid = np.zeros(gridSize)
 
@@ -37,15 +37,12 @@ solGridDrawSize = gridDrawSize
 solGridPos = (solGridDrawSize[0]*5/2, solGridDrawSize[1]/2)
 
 # ----------- Infos -----------
-colGuideNumbers = [] # Numéros d'indication en haut de la grille
-linGuideNumbers = [] # Même chose sur le côté
+guideNumbersAxis = [[],[]] # Numéros d'indication pour les lignes (0) et les colonne (1)
 pause = False # utilisé pour savoir quand l'utilisateur indique qu'il faut continuer
 currentProbas = np.zeros(gridSize) # Grille des probas courantes
 # Probas
-linFillProbas = np.zeros(gridSize)
-linCrossProbas = np.zeros(gridSize)
-colFillProbas = np.zeros(gridSize)
-colCrossProbas = np.zeros(gridSize)
+crossProbasAxis = [np.zeros(gridSize), np.zeros(gridSize)] # the first one is for the line probas, the second for the col probas
+fillProbasAxis = [np.zeros(gridSize), np.zeros(gridSize)]
 fillProbas = np.zeros(gridSize)
 crossProbas = np.zeros(gridSize)
 
@@ -57,22 +54,21 @@ crossProbas = np.zeros(gridSize)
 
 # ---------- Recherche des nombres d'indication ----------
 def findNumbers(grid, gridSize) :
-    linGuideNumbers = []
-    colGuideNumbers = []
+    guideNumbersAxis = [[],[]]
     # On commence par parcourir les lignes
     for i in range(gridSize[0]) :
         line = grid[i,:].ravel()
-        linGuideNumbers.append(findNumbersFromLine(line))
+        guideNumbersAxis[0].append(findNumbersFromLine(line))
     # Puis les colonnes
     for j in range(gridSize[1]) :
         line = grid[:,j].ravel()
-        colGuideNumbers.append(findNumbersFromLine(line))
+        guideNumbersAxis[1].append(findNumbersFromLine(line))
     
-    return linGuideNumbers, colGuideNumbers
+    return guideNumbersAxis
 
 def findNumbersFromLine(line) :
     chunk  = 0 # désigne le nombre de cases qu'il y a à la suite dans la série
-    currentList = [] # liste de nombres d'indication pour cette ligne, qui sera ajouté à linGuideNumbers ou colGuideNumbers une fois complété
+    currentList = [] # liste de nombres d'indication pour cette ligne, qui sera ajouté à guideNumbersAxis[0] ou guideNumbersAxis[1] une fois complété
     for j in range(gridSize[1]) :
         if line[j] == 1 : # si la case est remplie
             # on ajoute 1 case remplie au compteur
@@ -90,13 +86,13 @@ def findNumbersFromLine(line) :
 
 
 # ---------- Résolution ----------
-def Solve(linGuideNumbers, colGuideNumbers, gridSize) :
+def Solve(guideNumbersAxis, gridSize) :
     global currentProbas
     solutionGrid = np.zeros(gridSize)
     # We enter into the first layer of assumption
     # Here the assumption is that our guide numbers can give a solution
     
-    error, solutionGrid = Assumption(0, solutionGrid, linGuideNumbers, colGuideNumbers, gridSize)
+    error, solutionGrid = Assumption(0, solutionGrid, guideNumbersAxis, gridSize)
     
     if error == State.ERROR :
         print("les nombre sont pas bons ou alors c'est le programme qui est pas bon")
@@ -106,48 +102,50 @@ def Solve(linGuideNumbers, colGuideNumbers, gridSize) :
         ShowStep(solutionGrid)
         return solutionGrid
 
-def Assumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, gridSize) : # Renvoie state, solutionGrid
-    
+def Assumption(layer, currentSolGrid, guideNumbersAxis, gridSize, axisToSearch = 0) : # Renvoie state, solutionGrid
+    # "searchOnAxis" dit si on doit calculer les probas sur les colonnes ou sur les lignes
     global currentProbas
     state = State.SEARCHING
     
+    hadPlacedThingsOnAxis = [True,True]
+    
     # Boucle principale
     while state == State.SEARCHING :
+        print("Nouvelle itération")
+        print("axisToSearch :", axisToSearch)
         
-        # We show the result at runtime
+        # On montre le process pendant la résolution
         if showTkinter :
             ShowStep(currentSolGrid)
         
-        # We pause if pauseMod is activated
+        # On pause que si pauseMod est activé
         if pauseMod :
             Pause()
     
-        # On calcule les probas pour les lignes et les colonnes
+        # On calcule les probas pour les lignes ou les colonnes
         # On s'assure au passage qu'il n'y a aucune erreur de trouvée
-        errorLin, thingsLinProbas = FindProbas(linGuideNumbers.copy(), currentSolGrid, axis = 0)
-        errorCol, thingsColProbas = FindProbas(colGuideNumbers.copy(), currentSolGrid, axis = 1)
-        
+        error, thingsProbas = FindProbas(guideNumbersAxis[axisToSearch].copy(), currentSolGrid, axis = axisToSearch)
+        # "thingsProbas" contient les grille de proba de fill et de cross pour l'axe courant
         
         # S'il y a une erreur de trouvée, on arrête tout et on remonte l'info
-        if errorLin | errorCol :
+        if error :
             return State.ERROR, None
             '''
             Normalement ça devrait suffir pour détecter les contradictions, mais j'en suis pas complètement sûr
             '''
         else : # Pas d'erreur, on peut continuer
             # On stock les probas trouvées dans les variables correspondantes
-            linFillProbas, linCrossProbas = thingsLinProbas
-            colFillProbas, colCrossProbas = thingsColProbas
-            
+            fillProbasAxis[axisToSearch], crossProbasAxis[axisToSearch] = thingsProbas
             
             # On commence par essayer de placer des trucs sûrs
-            hadPlacedThings, currentSolGrid, thingsChanged = PlaceSure(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid)
+            hadPlacedThingsOnAxis[axisToSearch], currentSolGrid, thingsNotChanged = PlaceSure(fillProbasAxis[axisToSearch], crossProbasAxis[axisToSearch], currentSolGrid)
             
-            # Si on a rien réussi à placer aver certitude, on entre dans une nouvelle supposition
-            if not hadPlacedThings :
-                fillProbas = (linFillProbas + colFillProbas) /2
-                crossProbas = (linCrossProbas + colCrossProbas) /2
-                newState, currentSolGrid = StartNewAssumption(layer+1, np.copy(currentSolGrid), linGuideNumbers, colGuideNumbers,
+            # Si on a rien réussi à placer aver certitude, ni sur les lignes ni sur les colonnes,
+            # on entre dans une nouvelle supposition
+            if (not hadPlacedThingsOnAxis[0]) & (not hadPlacedThingsOnAxis[1]) :
+                fillProbas = (fillProbasAxis[0] + fillProbasAxis[1]) /2
+                crossProbas = (crossProbasAxis[0] + crossProbasAxis[1]) /2
+                newState, currentSolGrid = StartNewAssumption(layer+1, np.copy(currentSolGrid), guideNumbersAxis,
                                    gridSize, fillProbas, crossProbas)                
                 
                 # On vérifie si la grille a été résolue après cette supposition
@@ -157,11 +155,14 @@ def Assumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, gridSize
             ''' 
             Après avoir placé des trucs, il est temps de vérifier si on a résolu la grille
             '''
-            if CheckSolved(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid) :
+            if CheckSolved(currentSolGrid) :
                 return State.SOLVED, currentSolGrid
+            
+            # On change l'axis de recherche pour la prochaine itération de la boucle
+            axisToSearch = 1 if (axisToSearch == 0) else 0
     return state, currentSolGrid
 
-def CheckSolved(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid) :
+def CheckSolved(currentSolGrid) :
     '''
     Le but va être de voir si on a placé les bons trucs là où la proba = 1
     et que la grille est bien remplie comme ta
@@ -169,15 +170,15 @@ def CheckSolved(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, cu
     
     #print("CheckSolved()")
     
-    fillCompletionMask = ((linFillProbas == 1) | (colFillProbas == 1)) & (currentSolGrid == 1)
-    crossCompletionMask = ((linCrossProbas == 1) | (colCrossProbas == 1)) & (currentSolGrid == 2)
+    fillCompletionMask = ((fillProbasAxis[0] == 1) | (fillProbasAxis[1] == 1)) & (currentSolGrid == 1)
+    crossCompletionMask = ((crossProbasAxis[0] == 1) | (crossProbasAxis[1] == 1)) & (currentSolGrid == 2)
     completionMask = fillCompletionMask | crossCompletionMask
     
     solved = np.all(completionMask)
     
     return solved
 
-def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, gridSize, fillProbas, crossProbas) :
+def StartNewAssumption(layer, currentSolGrid, guideNumbersAxis, gridSize, fillProbas, crossProbas) :
     '''
     Renvoie : state, newGrid
     '''
@@ -206,7 +207,7 @@ def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, 
     
     Pause()
     
-    state, solvedGrid = Assumption(layer, currentSolGrid, linGuideNumbers.copy(), colGuideNumbers.copy(), gridSize)
+    state, solvedGrid = Assumption(layer, currentSolGrid, guideNumbersAxis, gridSize)
     
     # Si la cette supposition a mené à une contradiction,
     # on sait donc mtn que c'est l'inverse de la supposition à cet endroit
@@ -221,22 +222,25 @@ def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, 
     else : # state == State.SOLVED
         return State.SOLVED, solvedGrid
 
-def PlaceSure(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid) : # Renvoie hadPlacedThings, newSolGrid, (linesChanged, colsChanged)
+def PlaceSure(fillProbas, crossProbas, currentSolGrid) : # Renvoie hadPlacedThings, newSolGrid, (linesNotChanged, colsNotChanged)
     # On crée des masks avec true là où proba = 1
-    fillMask = ((linFillProbas == 1) | (colFillProbas == 1)) & (currentSolGrid == 0)
-    crossMask = ((linCrossProbas == 1) | (colCrossProbas == 1)) & (currentSolGrid == 0)
+    fillMask = (fillProbas == 1) & (currentSolGrid == 0)
+    crossMask = (crossProbas == 1) & (currentSolGrid == 0)
     
     # S'il y a des trucs sûrs, on les places et on remonte l'information qu'on a réussi à en placer
     if np.any(fillMask) | np.any(crossMask) :
         currentSolGrid[fillMask] = 1
         currentSolGrid[crossMask] = 2
         
-        linesChanged, colsChanged = np.where(fillMask | crossMask)
+        # On cherche les lignes et colonnes où on a rien placé
+        linesNotChanged, colsNotChanged = np.where(np.invert(fillMask | crossMask))
+        # On enlève les indices en double
+        linesNotChanged = RemoveDuplicatesFromList(linesNotChanged)
+        colsNotChanged = RemoveDuplicatesFromList(colsNotChanged)
         
-        return True, currentSolGrid, (linesChanged, colsChanged)
+        return True, currentSolGrid, (linesNotChanged, colsNotChanged)
     else :
         return False, currentSolGrid, None
-
 
 def FindProbas(guideNumbers, currentSolGrid, axis) : # Renvoie error, (fillProbas, crossProbas)
     '''
@@ -464,7 +468,7 @@ def Pause() :
     pause = True
     while pause & pauseMod :
         CheckUserInput()
-        
+
 # ---------- Utiles ----------
 def findMaxLength(listes):
     maxLength = 0
@@ -549,8 +553,8 @@ def ShowGrid(grid, size, position, showProbas = False) :
 def showGuideNumbers() :
     global window
     # On commence par les lignes
-    nbLines = len(linGuideNumbers)
-    maxNbNumbers = findMaxLength(linGuideNumbers)
+    nbLines = len(guideNumbersAxis[0])
+    maxNbNumbers = findMaxLength(guideNumbersAxis[0])
     fontSize = int( (gridDrawSize[1] / nbLines)  * (3/4) /2) # "4/3" c'est pour convertir les pixels en points
     font = tkfont.Font(size = fontSize)
     
@@ -560,7 +564,7 @@ def showGuideNumbers() :
     canvasPos = (0,gridPos[1])
     canvas = tk.Canvas(window, width = canvasSize[0], height = canvasSize[1] + borderWidth+1)
     
-    for i, numbers in enumerate(linGuideNumbers) :
+    for i, numbers in enumerate(guideNumbersAxis[0]) :
         nbNumbers = len(numbers) # Onen a besoin pour placer les nombres correctement
         for j, number in enumerate(numbers) :
             xShift = (maxNbNumbers - nbNumbers) * canvasSize[0] / maxNbNumbers
@@ -583,8 +587,8 @@ def showGuideNumbers() :
     
     
     # Puis les colonnes
-    nbColonnes = len(colGuideNumbers)
-    maxNbNumbers = findMaxLength(colGuideNumbers)
+    nbColonnes = len(guideNumbersAxis[1])
+    maxNbNumbers = findMaxLength(guideNumbersAxis[1])
     fontSize = int( (gridDrawSize[1] / nbLines)  * (3/4) /2) # "4/3" c'est pour convertir les pixels en points
     font = tkfont.Font(size = fontSize)
     
@@ -594,7 +598,7 @@ def showGuideNumbers() :
     canvasPos = (gridPos[0], 0)
     canvas = tk.Canvas(window, width = canvasSize[0]  + borderWidth+1, height = canvasSize[1])
     
-    for j, numbers in enumerate(colGuideNumbers) :
+    for j, numbers in enumerate(guideNumbersAxis[1]) :
         nbNumbers = len(numbers) # Onen a besoin pour placer les nombres correctement
         for i, number in enumerate(numbers) :
             xShift = borderWidth+1
@@ -618,13 +622,12 @@ def showGuideNumbers() :
 
 
 
-
 # ------------------------------------------------------------
 # -------------------- CORPS DU PROGRAMME --------------------
 # ------------------------------------------------------------
 
 # ---------- Génération ----------
-linGuideNumbers, colGuideNumbers = findNumbers(grid, gridSize)
+guideNumbersAxis = findNumbers(grid, gridSize)
 
 
 # ---------- Tkinter ----------
@@ -657,13 +660,13 @@ if showTkinter :
     
     
     # We start the solving after the tkinter settings because we want to show the process
-    solutionGrid = Solve( linGuideNumbers, colGuideNumbers, gridSize)
+    solutionGrid = Solve(guideNumbersAxis, gridSize)
     
     
     window.mainloop()
 
 else : # Si on affiche pas tkinter :
-    solutionGrid = Solve( linGuideNumbers, colGuideNumbers, gridSize)
+    solutionGrid = Solve(guideNumbersAxis, gridSize)
 
 
 

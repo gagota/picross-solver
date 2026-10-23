@@ -5,6 +5,7 @@ import tkinter.font as tkfont
 import sys
 from enum import Enum
 
+
 # ---------------------------------------------------
 # -------------------- VARIABLES --------------------
 # ---------------------------------------------------
@@ -16,13 +17,14 @@ class State(Enum) :
     ERROR = 2
 
 # ---------- Paramètres ----------
-gridSize = (15,15)
+gridSize = (17,17)
 winSize = (1600,800)
+pauseMod = False # indique si on doit attendre une action de l'utilisateur à chaque boucle
 showTkinter = True
 showProbas = False
 
 # ---------- Grids ----------
-np.random.seed(1)
+np.random.seed(8) # Il galère de ouf sur la seed 3 avec la taille 20x20
 grid = np.random.randint(0,2,gridSize)
 solutionGrid = np.zeros(gridSize)
 
@@ -37,7 +39,6 @@ solGridPos = (solGridDrawSize[0]*5/2, solGridDrawSize[1]/2)
 # ----------- Infos -----------
 colGuideNumbers = [] # Numéros d'indication en haut de la grille
 linGuideNumbers = [] # Même chose sur le côté
-pauseMod = True # indique si on doit attendre une action de l'utilisateur à chaque boucle
 pause = False # utilisé pour savoir quand l'utilisateur indique qu'il faut continuer
 currentProbas = np.zeros(gridSize) # Grille des probas courantes
 # Probas
@@ -106,15 +107,12 @@ def Solve(linGuideNumbers, colGuideNumbers, gridSize) :
         return solutionGrid
 
 def Assumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, gridSize) : # Renvoie state, solutionGrid
-    print("entering assumption at layer :", layer)
     
     global currentProbas
     state = State.SEARCHING
     
     # Boucle principale
     while state == State.SEARCHING :
-        print("nouvelle itération à la couche :", layer)
-        print("currentSolGrid :\n", currentSolGrid)
         
         # We show the result at runtime
         if showTkinter :
@@ -126,43 +124,34 @@ def Assumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, gridSize
     
         # On calcule les probas pour les lignes et les colonnes
         # On s'assure au passage qu'il n'y a aucune erreur de trouvée
-        print("Calcul probas")
         errorLin, thingsLinProbas = FindProbas(linGuideNumbers.copy(), currentSolGrid, axis = 0)
         errorCol, thingsColProbas = FindProbas(colGuideNumbers.copy(), currentSolGrid, axis = 1)
         
         
         # S'il y a une erreur de trouvée, on arrête tout et on remonte l'info
         if errorLin | errorCol :
-            print("Erreur trouvée")
             return State.ERROR, None
             '''
             Normalement ça devrait suffir pour détecter les contradictions, mais j'en suis pas complètement sûr
             '''
         else : # Pas d'erreur, on peut continuer
-            print("Pas d'erreur")
             # On stock les probas trouvées dans les variables correspondantes
             linFillProbas, linCrossProbas = thingsLinProbas
             colFillProbas, colCrossProbas = thingsColProbas
             
-            print("linFillProbas :\n", linFillProbas)
-            print("linCrossProbas :\n", linCrossProbas)
             
             # On commence par essayer de placer des trucs sûrs
-            print("placement trucs sûrs")
             hadPlacedThings, currentSolGrid, thingsChanged = PlaceSure(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid)
             
             # Si on a rien réussi à placer aver certitude, on entre dans une nouvelle supposition
             if not hadPlacedThings :
-                print("Rien placé avec certitude")
                 fillProbas = (linFillProbas + colFillProbas) /2
                 crossProbas = (linCrossProbas + colCrossProbas) /2
-                print("Nouvelle Supposition")
                 newState, currentSolGrid = StartNewAssumption(layer+1, np.copy(currentSolGrid), linGuideNumbers, colGuideNumbers,
                                    gridSize, fillProbas, crossProbas)                
                 
                 # On vérifie si la grille a été résolue après cette supposition
                 if newState == State.SOLVED :
-                    print("La grille a été résolue")
                     return State.SOLVED, currentSolGrid
             
             ''' 
@@ -192,7 +181,8 @@ def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, 
     '''
     Renvoie : state, newGrid
     '''
-    print("StartNewAsumption()")
+    
+    print("Nouvelle supposition !")
     
     # On commence par enlever toutes les probas là où il y a déjà un truc de placé
     fillProbas[currentSolGrid != 0] = 0
@@ -206,15 +196,13 @@ def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, 
     if fillProbas[fillAssumptionPos] > crossProbas[crossAssumptionPos] :
         assumption = 1
         assumptionPos = fillAssumptionPos
-        print("On va remplir à :", fillAssumptionPos)
+        print("la case à", assumptionPos, "est un remplissage")
     # Sinon cross
     else :
         assumption = 2
         assumptionPos = crossAssumptionPos
-        print("On va placer une croix à :", crossAssumptionPos)
-    print("grid before assumption :\n", currentSolGrid)
+        print("la case à", assumptionPos, "est une croix")
     currentSolGrid[assumptionPos] = assumption
-    print("grid after assumption :\n", currentSolGrid)
     
     Pause()
     
@@ -223,6 +211,7 @@ def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, 
     # Si la cette supposition a mené à une contradiction,
     # on sait donc mtn que c'est l'inverse de la supposition à cet endroit
     if state == State.ERROR :
+        print("Mauvaise supposition !")
         if assumption == 1 :
             currentSolGrid[assumptionPos] = 2
         else :
@@ -231,12 +220,6 @@ def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, 
     # Si ça a mené à une bonne solution, on a résolu l'affaire
     else : # state == State.SOLVED
         return State.SOLVED, solvedGrid
-    
-def CheckError(currentSolGrid, linesChanged, colsChanged) :
-    '''
-    Ca va fonctionner globalement très similairement à FindPossibilities,
-    sauf que là on va revenir en arrière dès qu'une possibilité a été trouvée
-    '''
 
 def PlaceSure(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid) : # Renvoie hadPlacedThings, newSolGrid, (linesChanged, colsChanged)
     # On crée des masks avec true là où proba = 1
@@ -256,7 +239,6 @@ def PlaceSure(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, curr
 
 
 def FindProbas(guideNumbers, currentSolGrid, axis) : # Renvoie error, (fillProbas, crossProbas)
-    #print("FindProbas()")
     '''
     Le but de cette méthode est de renvoyer 2 grilles de probabilité.
     Chaque grille correspond aux probabilités de remplissage et de croix,
@@ -271,11 +253,6 @@ def FindProbas(guideNumbers, currentSolGrid, axis) : # Renvoie error, (fillProba
     crossProbas = np.zeros(grid.shape)
     
     for k in range(gridSize[axis]) :
-        '''
-        print("------------")
-        print("Calcul Probas sur axe :", axis)
-        print("Index :", k)
-        '''
         numbers = guideNumbers[k]
         
         # On coupe la tranche de grille que l'on veut
@@ -307,7 +284,6 @@ def FindProbas(guideNumbers, currentSolGrid, axis) : # Renvoie error, (fillProba
     return False, (fillProbas, crossProbas)
 
 def FindProbasInLine(guideNumbers, gridLine) : # Renvoie error, (fillLineProbas, crossLineProbas)
-    #print("FindProbasInLine()")
     '''
     /!\ Attention "line" ici peut désigner une colonne, mais ça revient au même ici
     
@@ -349,7 +325,6 @@ def FindProbasInLine(guideNumbers, gridLine) : # Renvoie error, (fillLineProbas,
     return False, (fillProbas, crossProbas)
 
 def FindPossibilitiesInLine(numbersLeft, gridLine, partialPossibility = [], couche = 0) :
-    #print("FindPossibilitiesInLine()")
     '''
     Le but est de créer une matrice qui représente toutes les possibilités
     avec comme infos les guide numbers et ce qui est déjà connu sur la ligne de la grille.
@@ -371,12 +346,6 @@ def FindPossibilitiesInLine(numbersLeft, gridLine, partialPossibility = [], couc
     # (j'ai mis un try except pcq des fois y a une erreur là dessus et j'essaie de comprendre pk)
     try :
         currentNumber = numbersLeft.pop(0)
-        '''
-        print("poped successfully")
-        print("currentNumber :", currentNumber)
-        print("numbersLeft :", numbersLeft)
-        print("couche :", couche)
-        '''
     except :
         print("---------- Erreur ----------")
         print("On a essayé de pop un nombre de numbersLeft sauf que y en a plus")
@@ -429,17 +398,11 @@ def FindPossibilitiesInLine(numbersLeft, gridLine, partialPossibility = [], couc
                 partialPossibilities = AddPossibilityToMatrix(possibility, partialPossibilities)
                 
             else : # c'était le dernier nombre de la liste
-                print("Finish possibility :")
                 possibility = FinishPossibility(newPartialPossibility.copy(), len(gridLine))
-                print("element of possibility :", possibility.ravel()[0])
                 # Il faut s'assurer que les croix ajoutées ne font pas d'erreur avant d'ajouter la possibilité
-                if not CheckErrorPartialPossibility(possibility.ravel(), gridLine.copy()) :
-                    print("Pas d'erreur dans finishPossibility")        
-                    
+                if not CheckErrorPartialPossibility(possibility.ravel(), gridLine.copy()) :                    
                     partialPossibilities = AddPossibilityToMatrix(possibility, partialPossibilities)
                 
-            
-    
     # Maintenant on a terminé la branche, et donc on peut remonter le résultat    
     return partialPossibilities
 
@@ -481,18 +444,13 @@ def MakeNewPartialPossibility(possIndex, oldPartialPossibility, currentNumber) :
     return newPartialPossibility
     
 def CheckErrorPartialPossibility(partialPossibility, gridLine) : # Renvoie error
-    print("CheckErrorPartialPossibility")
     # On vérifie que la possibilité partielle correspond à ce qui est déjà connu sur la grille
     for i, cell in enumerate(partialPossibility) :
         # S'il y a une différence avec la grille, we not good
         if (gridLine[i] != 0) & (cell != gridLine[i]) :
-            print("Erreur")
-            print("partialPossibility :", partialPossibility, "gridLine :", gridLine)
             return True
     
     # Si tout s'est bien passé
-    print("Pas d'erreur")
-    print("partialPossibility :", partialPossibility, "gridLine :", gridLine)
     return False
         
 def FindNbPossibilities(numbersLeft, gridLineLength, partialPossibilityLength) :
@@ -704,39 +662,8 @@ if showTkinter :
     
     window.mainloop()
 
+else : # Si on affiche pas tkinter :
+    solutionGrid = Solve( linGuideNumbers, colGuideNumbers, gridSize)
 
-# ---------------------------------------------------
-# -------------------- Test zone --------------------
-# ---------------------------------------------------
 
-solutionGrid = Solve( linGuideNumbers, colGuideNumbers, gridSize)
-
-'''
-# ---------- FindPossibilitiesInLine() ----------
-print("---------- Test FindPossibilitiesInLine() :")
-guideNumbers = [1, 2]
-gridLine = [0,0,0,0,0]
-print("linGuideNumbers :", guideNumbers)
-print("gridline :", gridLine)
-print("possibilities :\n", FindPossibilitiesInLine(guideNumbers.copy(), gridLine))
-# Good !
-'''
-'''
-# ---------- FindProbasInLine() ----------
-print("---------- Test FindProbasInLine() :")
-#guideNumbers = [2,1,3]
-#gridLine = [0,1,0,0,0,0,0,0,0,0]
-#print("linGuideNumbers :", guideNumbers)
-#print("gridline :", gridLine)
-print("probas :\n",FindProbasInLine(guideNumbers.copy(), gridLine)[1][0])
-# Good !
-'''
-'''
-# ---------- FindProbas() ----------
-print("---------- Test FindProbas() :")
-print("grid :\n",grid)
-print("linguideNumbers :", linGuideNumbers)
-print("Probas :\n", (FindProbas(linGuideNumbers, np.zeros(gridSize), axis = 0))[1][0])
-# Good !
-'''
 

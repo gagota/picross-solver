@@ -1,6 +1,4 @@
-# The goal of this program is to make a picross drawin on a grid, then find the clue numbers for a given drawing
-# and then solving the picross with a given set a clue numbers
-
+# Le but de se programme est de coder la grille, les numéros d'indication, et de créer automatiquement les numéros à partir d'une grille coloriée
 import time
 
 import Grid
@@ -9,13 +7,12 @@ import Solver
 
 
 def Test1() :
-    # This method tests the grid solving program on a random grid
     gridShape = (20,20)
     solGrid = Grid.CreateRandomGrid(gridShape)
     guideNumbersAxis = Grid.FindNumbers(solGrid)
     Draw.InitWindow(solGrid, guideNumbersAxis)
 
-    Solver.Solve(guideNumbersAxis, gridShape)
+    Solver.Solve(guideNumbersAxis, gridShape, _showTkinter=True, _pauseMod=False)
 
     Draw.LoopDisplay()
 

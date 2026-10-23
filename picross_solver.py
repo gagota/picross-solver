@@ -3,33 +3,58 @@ import numpy as np
 import tkinter as tk
 import tkinter.font as tkfont
 import sys
+from enum import Enum
 
-gridSize = (10,10)
+# ---------------------------------------------------
+# -------------------- VARIABLES --------------------
+# ---------------------------------------------------
+
+# ---------- Enum ----------
+class State(Enum) :
+    SEARCHING = 0
+    SOLVED = 1
+    ERROR = 2
+
+# ---------- Paramètres ----------
+gridSize = (15,15)
 winSize = (1600,800)
-# Base Grid
-#np.random.seed(1)
+showTkinter = True
+showProbas = False
+
+# ---------- Grids ----------
+np.random.seed(1)
 grid = np.random.randint(0,2,gridSize)
+solutionGrid = np.zeros(gridSize)
+
+# ---------- Tkinter ----------
+# Model grid
 gridDrawSize = (min(winSize) / 2, min(winSize) / 2)
 gridPos = (gridDrawSize[0]/2, gridDrawSize[1]/2)
 # Solution grid
-solutionGrid = np.zeros(gridSize)
-solGridSize = gridDrawSize
-solGridPos = (solGridSize[0]*5/2, solGridSize[1]/2)
-currentProbas = np.zeros(gridSize)
+solGridDrawSize = gridDrawSize
+solGridPos = (solGridDrawSize[0]*5/2, solGridDrawSize[1]/2)
 
-colGuideNumbers = []
-linGuideNumbers = []
-
-SolutionGrid = np.zeros(gridSize)
-
-pauseMod = False # indique si on doit attendre une action de l'utilisateur à chaque boucle
+# ----------- Infos -----------
+colGuideNumbers = [] # Numéros d'indication en haut de la grille
+linGuideNumbers = [] # Même chose sur le côté
+pauseMod = True # indique si on doit attendre une action de l'utilisateur à chaque boucle
 pause = False # utilisé pour savoir quand l'utilisateur indique qu'il faut continuer
+currentProbas = np.zeros(gridSize) # Grille des probas courantes
+# Probas
+linFillProbas = np.zeros(gridSize)
+linCrossProbas = np.zeros(gridSize)
+colFillProbas = np.zeros(gridSize)
+colCrossProbas = np.zeros(gridSize)
+fillProbas = np.zeros(gridSize)
+crossProbas = np.zeros(gridSize)
 
 
-# ------------------------------------------------
-# ---------- Création de nombres random ----------
-# ------------------------------------------------
 
+# --------------------------------------------------
+# -------------------- METHODES --------------------
+# --------------------------------------------------
+
+# ---------- Recherche des nombres d'indication ----------
 def findNumbers(grid, gridSize) :
     linGuideNumbers = []
     colGuideNumbers = []
@@ -63,283 +88,426 @@ def findNumbersFromLine(line) :
     return currentList
 
 
-
-# --------------------------------
 # ---------- Résolution ----------
-# --------------------------------
-
-def ClearGrid() :
-    global grid
-    grid= np.zeros(gridSize)
-    print("grid cleared :", grid)
-
-def Solve(grid, linGuideNumbers, colGuideNumbers, gridSize) :
-    noError, res = Assumption(0, grid.copy(), linGuideNumbers, colGuideNumbers, gridSize)
-    if noError == False :
-        print("Les numéros semblent pas bons")
-        return None
-    else :
-        print("Finito !")
-        ShowGrid(res, solGridSize, solGridPos, showProbas = True)
-        return res
-        
-def Assumption(layer, grid, linGuideNumbers, colGuideNumbers, gridSize) :
+def Solve(linGuideNumbers, colGuideNumbers, gridSize) :
     global currentProbas
+    solutionGrid = np.zeros(gridSize)
+    # We enter into the first layer of assumption
+    # Here the assumption is that our guide numbers can give a solution
     
+    error, solutionGrid = Assumption(0, solutionGrid, linGuideNumbers, colGuideNumbers, gridSize)
+    
+    if error == State.ERROR :
+        print("les nombre sont pas bons ou alors c'est le programme qui est pas bon")
+        return solutionGrid
+    else :
+        print("Solved !")
+        ShowStep(solutionGrid)
+        return solutionGrid
+
+def Assumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, gridSize) : # Renvoie state, solutionGrid
     print("entering assumption at layer :", layer)
-    solved = False
     
-    linFillProbas = np.zeros(gridSize)
-    linCrossProbas = np.zeros(gridSize)
-    colFillProbas = np.zeros(gridSize)
-    colCrossProbas = np.zeros(gridSize)
-    fillProbas = np.zeros(gridSize)
-    crossProbas = np.zeros(gridSize)
+    global currentProbas
+    state = State.SEARCHING
     
     # Boucle principale
-    while(not solved) :
+    while state == State.SEARCHING :
+        print("nouvelle itération à la couche :", layer)
+        print("currentSolGrid :\n", currentSolGrid)
+        
+        # We show the result at runtime
+        if showTkinter :
+            ShowStep(currentSolGrid)
+        
+        # We pause if pauseMod is activated
         if pauseMod :
             Pause()
-        # We show the result at runtime
-        ShowGrid(grid, solGridSize, solGridPos, showProbas = True)
-        ScreenRefresh()
-
+    
         # On calcule les probas pour les lignes et les colonnes
         # On s'assure au passage qu'il n'y a aucune erreur de trouvée
-        noError1, res1 = FindProbas(linGuideNumbers.copy(), grid, axis = 0)
-        noError2, res2 = FindProbas(colGuideNumbers.copy(), grid, axis = 1)
+        print("Calcul probas")
+        errorLin, thingsLinProbas = FindProbas(linGuideNumbers.copy(), currentSolGrid, axis = 0)
+        errorCol, thingsColProbas = FindProbas(colGuideNumbers.copy(), currentSolGrid, axis = 1)
         
-        if (noError1 == False) | (noError2 == False):
-            return False, None
         
-        else :
+        # S'il y a une erreur de trouvée, on arrête tout et on remonte l'info
+        if errorLin | errorCol :
+            print("Erreur trouvée")
+            return State.ERROR, None
+            '''
+            Normalement ça devrait suffir pour détecter les contradictions, mais j'en suis pas complètement sûr
+            '''
+        else : # Pas d'erreur, on peut continuer
+            print("Pas d'erreur")
             # On stock les probas trouvées dans les variables correspondantes
-            linFillProbas, linCrossProbas = res1
-            colFillProbas, colCrossProbas = res2
+            linFillProbas, linCrossProbas = thingsLinProbas
+            colFillProbas, colCrossProbas = thingsColProbas
             
-            fillProbas = (linFillProbas + colFillProbas) / 2
-            currentProbas = fillProbas
+            print("linFillProbas :\n", linFillProbas)
+            print("linCrossProbas :\n", linCrossProbas)
             
-            # On place les remplissages et les croix là où la proba = 1
-            fillMask = ((linFillProbas == 1) | (colFillProbas == 1)) & (grid == 0)
-            crossMask = ((linCrossProbas == 1) | (colCrossProbas == 1)) & (grid == 0)
+            # On commence par essayer de placer des trucs sûrs
+            print("placement trucs sûrs")
+            hadPlacedThings, currentSolGrid, thingsChanged = PlaceSure(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid)
             
-            # Si il y a des trucs sûrs, on les place et on  recommence à calculer les probas
-            if np.any(fillMask) | np.any(crossMask) :
-                grid[fillMask] = 1
-                grid[crossMask] = 2
+            # Si on a rien réussi à placer aver certitude, on entre dans une nouvelle supposition
+            if not hadPlacedThings :
+                print("Rien placé avec certitude")
+                fillProbas = (linFillProbas + colFillProbas) /2
+                crossProbas = (linCrossProbas + colCrossProbas) /2
+                print("Nouvelle Supposition")
+                newState, currentSolGrid = StartNewAssumption(layer+1, np.copy(currentSolGrid), linGuideNumbers, colGuideNumbers,
+                                   gridSize, fillProbas, crossProbas)                
                 
-                # On les place aussi dans la grille qui va nous permettre de vérifier s'il y a des erreurs
-                newlyPlacedThings = np.zeros(gridSize)
-                newlyPlacedThings[fillMask] = 1
-                newlyPlacedThings[crossMask] = 2
-                
-                # On vérifie qu'il n'y a pas d'erreur
-                if CheckErrors(grid, newlyPlacedThings, linGuideNumbers.copy(), colGuideNumbers.copy()) :
-                    return False, None
-                
-                # On vérifie si on a complété la grille
-                if (linGuideNumbers, colGuideNumbers) == findNumbers(grid, gridSize) :
-                    solved = True
-                
-            # Sinon on entre dans une nouvelle supposition
-            else :
-                # On supperpose les probabilités de ligne et de colonne
-                fillProbas = (linFillProbas + colFillProbas) / 2
-                crossProbas = (linCrossProbas + colFillProbas) / 2
-                # On enlève les probas là où on a déjà placé des trucs
-                fillProbas[grid != 0] = 0
-                crossProbas[grid != 0] = 0
-                newGrid = np.copy(grid)
-                '''
-                print("gonna do an assumption")
-                print("linFillProbas :", linFillProbas)
-                print("fillProbas :", fillProbas)
-                '''
-                # La supposition qu'on va faire est là où il y a la plus forte proba sur la grille
-                fillAssumptionPos = np.unravel_index(np.argmax(fillProbas), fillProbas.shape)
-                crossAssumptionPos = np.unravel_index(np.argmax(crossProbas), crossProbas.shape)
-                
-                # si la proba de fill est plus grande que la proba de cross, la supposition sera un fill
-                if fillProbas[fillAssumptionPos] > crossProbas[crossAssumptionPos] :
-                    assumption = 1
-                    assumptionPos = fillAssumptionPos
-                # Sinon cross
-                else :
-                    assumption = 2
-                    assumptionPos = crossAssumptionPos
-                newGrid[assumptionPos] = assumption
-                noError, res = Assumption(layer+1, newGrid, linGuideNumbers.copy(), colGuideNumbers.copy(), gridSize)
-                
-                # Si la cette supposition a mené à une contradiction,
-                # on sait donc mtn que c'est l'inverse de la supposition à cet endroit
-                if noError == False :
-                    if assumption == 1 :
-                        grid[assumptionPos] = 2
-                    else :
-                        grid[assumptionPos] = 1
-                # Si ça a mené à une bonne solution, on a résolu l'affaire
-                else :
-                    grid = res
-                    solved = True
-                        
-    # On sort de la boucle si la solution a été trouvée
-    print("Come back from layer :", layer)
-    return True, grid
+                # On vérifie si la grille a été résolue après cette supposition
+                if newState == State.SOLVED :
+                    print("La grille a été résolue")
+                    return State.SOLVED, currentSolGrid
+            
+            ''' 
+            Après avoir placé des trucs, il est temps de vérifier si on a résolu la grille
+            '''
+            if CheckSolved(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid) :
+                return State.SOLVED, currentSolGrid
+    return state, currentSolGrid
 
-def FindProbas(guideNumbers, grid, axis):
+def CheckSolved(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid) :
+    '''
+    Le but va être de voir si on a placé les bons trucs là où la proba = 1
+    et que la grille est bien remplie comme ta
+    '''
+    
+    #print("CheckSolved()")
+    
+    fillCompletionMask = ((linFillProbas == 1) | (colFillProbas == 1)) & (currentSolGrid == 1)
+    crossCompletionMask = ((linCrossProbas == 1) | (colCrossProbas == 1)) & (currentSolGrid == 2)
+    completionMask = fillCompletionMask | crossCompletionMask
+    
+    solved = np.all(completionMask)
+    
+    return solved
+
+def StartNewAssumption(layer, currentSolGrid, linGuideNumbers, colGuideNumbers, gridSize, fillProbas, crossProbas) :
+    '''
+    Renvoie : state, newGrid
+    '''
+    print("StartNewAsumption()")
+    
+    # On commence par enlever toutes les probas là où il y a déjà un truc de placé
+    fillProbas[currentSolGrid != 0] = 0
+    crossProbas[currentSolGrid != 0] = 0
+    
+    # La supposition qu'on va faire est là où il y a la plus forte proba sur la grille
+    fillAssumptionPos = np.unravel_index(np.argmax(fillProbas), fillProbas.shape)
+    crossAssumptionPos = np.unravel_index(np.argmax(crossProbas), crossProbas.shape)
+    
+    # si la proba de fill est plus grande que la proba de cross, la supposition sera un fill
+    if fillProbas[fillAssumptionPos] > crossProbas[crossAssumptionPos] :
+        assumption = 1
+        assumptionPos = fillAssumptionPos
+        print("On va remplir à :", fillAssumptionPos)
+    # Sinon cross
+    else :
+        assumption = 2
+        assumptionPos = crossAssumptionPos
+        print("On va placer une croix à :", crossAssumptionPos)
+    print("grid before assumption :\n", currentSolGrid)
+    currentSolGrid[assumptionPos] = assumption
+    print("grid after assumption :\n", currentSolGrid)
+    
+    Pause()
+    
+    state, solvedGrid = Assumption(layer, currentSolGrid, linGuideNumbers.copy(), colGuideNumbers.copy(), gridSize)
+    
+    # Si la cette supposition a mené à une contradiction,
+    # on sait donc mtn que c'est l'inverse de la supposition à cet endroit
+    if state == State.ERROR :
+        if assumption == 1 :
+            currentSolGrid[assumptionPos] = 2
+        else :
+            currentSolGrid[assumptionPos] = 1
+        return State.ERROR, currentSolGrid
+    # Si ça a mené à une bonne solution, on a résolu l'affaire
+    else : # state == State.SOLVED
+        return State.SOLVED, solvedGrid
+    
+def CheckError(currentSolGrid, linesChanged, colsChanged) :
+    '''
+    Ca va fonctionner globalement très similairement à FindPossibilities,
+    sauf que là on va revenir en arrière dès qu'une possibilité a été trouvée
+    '''
+
+def PlaceSure(linFillProbas, colFillProbas, linCrossProbas, colCrossProbas, currentSolGrid) : # Renvoie hadPlacedThings, newSolGrid, (linesChanged, colsChanged)
+    # On crée des masks avec true là où proba = 1
+    fillMask = ((linFillProbas == 1) | (colFillProbas == 1)) & (currentSolGrid == 0)
+    crossMask = ((linCrossProbas == 1) | (colCrossProbas == 1)) & (currentSolGrid == 0)
+    
+    # S'il y a des trucs sûrs, on les places et on remonte l'information qu'on a réussi à en placer
+    if np.any(fillMask) | np.any(crossMask) :
+        currentSolGrid[fillMask] = 1
+        currentSolGrid[crossMask] = 2
+        
+        linesChanged, colsChanged = np.where(fillMask | crossMask)
+        
+        return True, currentSolGrid, (linesChanged, colsChanged)
+    else :
+        return False, currentSolGrid, None
+
+
+def FindProbas(guideNumbers, currentSolGrid, axis) : # Renvoie error, (fillProbas, crossProbas)
+    #print("FindProbas()")
+    '''
+    Le but de cette méthode est de renvoyer 2 grilles de probabilité.
+    Chaque grille correspond aux probabilités de remplissage et de croix,
+    par rapport aux guide numbers de colonne OU de ligne (selon l'axis).
+    La méthode renvoie l'information de si une erreur a été trouvé
+    et la grille si aucune erreur a été trouvée.
+    '''
+    
+    # On va appeler pour chaque ligne ou chaque colonne la méthode "FindProbasInLine"
+    # Et regrouper les résultats de chaque appel dans les 2 grilles
     fillProbas = np.zeros(grid.shape)
     crossProbas = np.zeros(grid.shape)
     
-    # Si on veut s'occuper des lignes
-    if axis == 0 :
-        for i in range(gridSize[0]) :
-            numbers = guideNumbers[i]
-            gridLine = grid[i,:].ravel()
-            noError, res = FindProbasInLine(numbers.copy(), gridLine)
-            # Si une contradiction a été trouvé
-            if noError == False :
-                return False, None
-            # Dans ce cas les probas ont été trouvées
-            else :
-                fillLineProbas, crossLineProbas = res
-                # On les ajoute aux grilles
-                fillProbas[i,:] = fillLineProbas
-                crossProbas[i,:] = crossLineProbas
-
-    # Si on veut s'occuper des colonnes
-    else :
-        for j in range(gridSize[1]) :
-            numbers = guideNumbers[j]
-            gridLine = grid[:,j]
-            noError, res = FindProbasInLine(numbers.copy(), gridLine)
-            # Si une contradiction a été trouvé
-            if noError == False :
-                return False, None
-            # Dans ce cas les probas ont été trouvées
-            else :
-                fillLineProbas, crossLineProbas = res
-                # On les ajoute aux grilles
-                fillProbas[j,:] = fillLineProbas
-                crossProbas[j,:] = crossLineProbas
-        # On doit transposer les matrices à la fin car elles ne sont pas dans le bon sens pour les colonnes
+    for k in range(gridSize[axis]) :
+        '''
+        print("------------")
+        print("Calcul Probas sur axe :", axis)
+        print("Index :", k)
+        '''
+        numbers = guideNumbers[k]
+        
+        # On coupe la tranche de grille que l'on veut
+        if axis == 0 :    
+            gridLine = currentSolGrid[k,:].ravel()
+        else : # axis == 1
+            gridLine = currentSolGrid[:,k].ravel()
+                
+        # On appelle "FindProbasInLine"
+        # Si jamais il y a une erreur, "error" = True
+        error, thingsLineProbas = FindProbasInLine(numbers.copy(), gridLine)
+        # Si une contradiction a été trouvé, On remonte tout de suite pour le dire
+        if error == True :
+            return True, None
+        # Dans ce cas les probas ont été trouvées
+        else :
+            fillLineProbas, crossLineProbas = thingsLineProbas
+            # On les ajoute aux grilles
+            fillProbas[k,:] = fillLineProbas
+            crossProbas[k,:] = crossLineProbas
+            
+        #Pause()
+            
+    # Si axis = 1, il faut transposer les matrices de proba pour qu'elles collent avec la grille
+    if axis == 1 :
         fillProbas = fillProbas.T
         crossProbas = crossProbas.T
+        
+    return False, (fillProbas, crossProbas)
 
-    return True, (fillProbas, crossProbas)
-
-def FindProbasInLine(numbers, gridLine) :
-    atLeastOnePossibility, possibilities = FindPossibilitiesInLine([], numbers.copy(), gridLine, 0)
-
-    # Si nbPossibilities = 0, ça veut dire qu'il y a une contradiction
-    if not atLeastOnePossibility :
-        return False, None
+def FindProbasInLine(guideNumbers, gridLine) : # Renvoie error, (fillLineProbas, crossLineProbas)
+    #print("FindProbasInLine()")
+    '''
+    /!\ Attention "line" ici peut désigner une colonne, mais ça revient au même ici
+    
+    Le but va être de calculer toutes les possibilités de placement et d'en faire la moyenne pour chaque case
+    "possibilities" est une matrice avec 1 colonne pour chaque case de la ligne "line",
+    et 1 ligne pour chaque possibilité
+    
+    Il y a un bug si il n'y a aucun guide number dans guideNumbers.
+    Ce cas arrive quand il n'y a aucun remplissage dans la ligne.
+    Pour éviter ce bug, on va d'abord vérifier qu'il y a des nombres dans guideNumbers,
+    et s'il y a en pas, on sait que la ligne est remplie de croix
+    '''
+    
+    # On vérifie si on est dans le cas particulier où il n'y a pas de guide number
+    if len(guideNumbers) == 0 :
+        fillProbas = [0 for k in range(len(gridLine))]
+        crossProbas = [1 for k in range(len(gridLine))]
     else :
+        possibilities = FindPossibilitiesInLine(guideNumbers.copy(), gridLine)
+        
+        # Si aucune possibilité n'à été trouvé, cela veut dire qu'il y a une erreur.
+        # Du coup on le balance à la maitresse (FindProbas)
         nbPossibilities = possibilities.shape[0]
+        if nbPossibilities == 0 :
+            return True, None
+        # Sinon tout baigne, on peut continuer nos calculs
+        else :
+            # On traite d'abord les remplissages :
+            # On crée un mask avec True là où la case est remplie comme ta soeur
+            fillPossibilities = (possibilities == 1)
+            # On calcule les probas de chaque case
+            fillProbas = fillPossibilities.sum(axis = 0, dtype = np.float16) / nbPossibilities
+            
+            # Puis les croix :
+            crossPossibilities = (possibilities == 2)
+            #print("crossPossibilities :",crossPossibilities) # Pour vérifier que c'est bien un mask
+            crossProbas = crossPossibilities.sum(axis = 0, dtype = np.float16) / nbPossibilities
         
-        # On traite d'abord les remplissages :
-        # On crée un mask avec True là où la case est remplie comme ta soeur
-        fillPossibilities = (possibilities == 1)
-        # On calcule les probas de chaque case
-        fillProbas = fillPossibilities.sum(axis = 0, dtype = np.float16) / nbPossibilities
-        
-        # Puis les croix :
-        crossPossibilities = (possibilities == 2)
-        print(crossPossibilities) # Pour vérifier que c'est bien un mask
-        crossProbas = crossPossibilities.sum(axis = 0, dtype = np.float16) / nbPossibilities
-        return True, (fillProbas, crossProbas)
-        
-def FindPossibilitiesInLine(partialPossibility, numbersLeft, gridLine, couche, checkAtLeastOnePossibility = False) :
-    # partialPossibility est le schema rempli pour les nombres précédant celui qui va être traité
-    # numbersLeft c'est ceux qui ont pas encore été placés
-    # lineFromGrid est la ligne telle qu'elle est actuellement dessinée dans la grille. permet de savoir si notre possibilité créée correspond à ce qui est déjà écrit dans la grille
+    return False, (fillProbas, crossProbas)
+
+def FindPossibilitiesInLine(numbersLeft, gridLine, partialPossibility = [], couche = 0) :
+    #print("FindPossibilitiesInLine()")
+    '''
+    Le but est de créer une matrice qui représente toutes les possibilités
+    avec comme infos les guide numbers et ce qui est déjà connu sur la ligne de la grille.
+    La matrice a 1 colonne pour chaque case de la ligne "line", et 1 ligne pour chaque possibilité
     
-    # On commence par calculer la place totale minimale que prennent les numbersLeft
-    # (ça pourra nous indiquer le nombre de possibilités pour le nombre à traiter dans cette récursion)
-    spaceNeeded = sum(numbersLeft) + (len(numbersLeft)-1) # l'espace que prends le remplissage + l'espace que prennent les croix
-    spaceLeft = len(gridLine) - len(partialPossibility)
-    nbPossibilities = spaceLeft+1 - spaceNeeded # le nombre de placement possibles pour notre nombre courant
-    atLeastOnePossibility = False # Tells if there's at least one possibility
+    On appelle la fonction par récurrence pour faire une recherche en arbre.
+    Du coup le but est de coller les bouts de matrices ensemble
+    au fur et à mesure qu'ils sont créés.
     
-    # Si notre ligne est à plat, le nombre qui nous intéresse est celui le plus à gauche dans les numbersLeft
-    # On sait maintenant que la première possibilité est de le placer le plus à gauche possible
-    # et que sa dernière possibilité est décalé de nbPossibilities
-    # On va donc fabriquer ces possibilités et appeler FindPossibilities pour les autres nombres restants s'il y en a
-    # On retire notre nombre de la liste
+    "numberLeft" est la liste des guides numbers qui n'ont pas encore été placé
+    dans notre possibilité.
+    '''
+
+    # On commence par chercher le nombre de placements possibles
+    # pour le nombre de la liste qui nous intéresse (cad le premier de "numbersLeft")
+    nbPossibilities = FindNbPossibilities(numbersLeft.copy(), len(gridLine), len(partialPossibility))# le nombre de placement possibles pour notre nombre courant
     
+    # On extrait le nombre qui nous intéresse de la liste
+    # (j'ai mis un try except pcq des fois y a une erreur là dessus et j'essaie de comprendre pk)
     try :
         currentNumber = numbersLeft.pop(0)
+        '''
+        print("poped successfully")
+        print("currentNumber :", currentNumber)
+        print("numbersLeft :", numbersLeft)
+        print("couche :", couche)
+        '''
     except :
-        print("j'ai chié dans la soupe", couche)
+        print("---------- Erreur ----------")
+        print("On a essayé de pop un nombre de numbersLeft sauf que y en a plus")
+        print("méthode : FindPossibilitiesInLine()")
+        print("couche :", couche)
+        print("numbersLeft :", numbersLeft)
         sys.exit()
-    partialPossibilities = np.array([]) # Matrice partielle des possibilités, remplie par ce qui suit
-    
+        
+    # On remplie mtn la matrice partielle de possibilités
+    partialPossibilities = np.array([])
     for i in range(nbPossibilities) :
-        newPartialPossibility = partialPossibility.copy()
-        # On insère les éventuelles croix (quand i = 1 il n'y en a pas, car on place notre nombre tout à gauche)
-        for k in range(i):
-            newPartialPossibility.append(2)
-        # Puis on ajoute notre nombre
-        for k in range(currentNumber) :
-            newPartialPossibility.append(1)
+        '''
+        Ici on veut fabriquer "nbPossibilities" débuts de possibilités.
+        D'abord il y a le début de possibilité (partialPossibility) qu'on a reçu du call de cette récursion.
+        Maintenant on veut ajouter notre nombre de cette façon :
+            si - "partialPossibility" est disons "11x1x", où "1" représente un replissage et "x" un croix
+               - qu'il y a 3 nouveaux débuts de possibilités à faire
+               - avec le nombre 2,
+            nos 3 possibilités vont être :
+                11x1x11
+                11x1xx11
+                11x1xxx11
+        En gros on décale notre nombre de 1 à chaque fois.
+        A noter quand même que "partialPossibility" qui nous a été donné se termine par une croix,
+        et que donc il faut aussi terminer notre newPartialPossibility par une croix SI CE N'EST PAS LE DERNIER NOMBRE
+        '''
+        # On fabrique la nouvelle possibilité
+        newPartialPossibility = MakeNewPartialPossibility(i, partialPossibility.copy(), currentNumber)
+        # On vérifie qu'il n'y a pas de contradiction avec ce qu'on connais déjà de la grille
+        error = CheckErrorPartialPossibility(newPartialPossibility.copy(), gridLine.copy())
         
-        weGood = True # dit si on est good avec la grille
-        # On vérifie que la possibilité partielle correspond à ce qui est déjà connu sur la grille
-        for i, cell in enumerate(newPartialPossibility) :
-            # S'il y a une différence avec la grille, we not good
-            if (gridLine[i] != 0) & (cell != gridLine[i]) :
-                weGood = False
-                break
-        
-        # On traite la possibilité partielle que si on est good
-        if weGood :
-            # Si ce n'était pas le dernier nombre de la liste, on appelle FindPossibilities pour les restants
-            if len(numbersLeft) > 0 :
-                # D'abord on ajoute une croix pour le séparer des chunks suivants
+        # On ne traite cette new possibilité partiel que si elle n'a aucune contradiction avec la grille
+        if not error :
+            # On agit différemment si currentNumber était le dernier de la liste ou pas
+            if len(numbersLeft) > 0 : # Si ce n'est pas le dernier de la liste
+                # On place une croix pour séparer le nombre des suivants
                 newPartialPossibility.append(2)
-                currentAtLeastOnePossibility, possibility = FindPossibilitiesInLine(newPartialPossibility, numbersLeft.copy(), gridLine, couche+1)
-                # Si on a trouvé une possibilité, on set "atLeastOnePossibility" à true
-                # Sinon on continue de chercher les possibilités
-                if currentAtLeastOnePossibility :
-                    atLeastOnePossibility = True
-                    # We don't have to search further if "checkAtLeastOnePossibility" is set to true
-                    if checkAtLeastOnePossibility :
-                        return atLeastOnePossibility, None
+                # On continue la formation des possibilités avec le nombre suivant
+                possibility = FindPossibilitiesInLine(numbersLeft.copy(), gridLine, newPartialPossibility, couche = couche+1)
+                '''
+                A noter que possibility ici peut regrouper plusieurs possibilités,
+                vu que FindPossibilitiesInLine renvoie plusieurs possibilités.
+                Ce n'est pas un problème pour la suite, on ajoute cette matrice de possibilité à partialPossibilities
+                de la même façon qu'on ajouterait une seule possibilité
                 
-            # Sinon c'est le dernier de la liste, et donc la possibilité est presque prête
-            else :
-                # On vient de trouver une possibilité, donc on a pas besoin d'aller plus loin
-                # Si "checkAtLeastOnePossibility" == True
-                atLeastOnePossibility = True
-                if checkAtLeastOnePossibility :
-                    print("at least on possibility :", atLeastOnePossibility, "couche :", couche)
-                    return atLeastOnePossibility, None
+                /!\ Par contre il peut n'y avoir aucune possibilité de trouvé, et là il faut faire attention
+                '''
                 
-                # On commence par remplir l'espace à droite de croix
-                spaceLeft = len(gridLine) - len(newPartialPossibility)
-                for k in range(spaceLeft) :
-                    newPartialPossibility.append(2)
-                # C'est maintenant une possibilité toute prête sortie du four
-                possibility = newPartialPossibility.copy()
-                # On transforme possibility en array numpy pour la convénience
-                possibility = np.array(possibility)
-                possibility = possibility.reshape(1,possibility.shape[0]) # Pour éviter des bugs à la concaténation
+                #Une fois la possibilité créée, il faut l'ajouter à la matrice de possibilités
+                partialPossibilities = AddPossibilityToMatrix(possibility, partialPossibilities)
+                
+            else : # c'était le dernier nombre de la liste
+                print("Finish possibility :")
+                possibility = FinishPossibility(newPartialPossibility.copy(), len(gridLine))
+                print("element of possibility :", possibility.ravel()[0])
+                # Il faut s'assurer que les croix ajoutées ne font pas d'erreur avant d'ajouter la possibilité
+                if not CheckErrorPartialPossibility(possibility.ravel(), gridLine.copy()) :
+                    print("Pas d'erreur dans finishPossibility")        
+                    
+                    partialPossibilities = AddPossibilityToMatrix(possibility, partialPossibilities)
+                
             
-            # On ajoute cette possibilité préparée avec soin à notre matrice de possibilités
-            # Cependant il se peut que possibility soit vide, donc on vérifie d'abord qu'elle ne l'est pas
-            if possibility.size != 0 :
-                # La manipe diffère selon si partialPossibilities est vide ou pas
-                if(partialPossibilities.size == 0) :
-                    partialPossibilities = possibility
-                else :
-                    partialPossibilities = np.vstack((partialPossibilities, possibility))
-        
-        
+    
+    # Maintenant on a terminé la branche, et donc on peut remonter le résultat    
+    return partialPossibilities
 
-    # Une fois toutes les possibilités explorées pour notre currentNumber,
-    # On remonte notre matrice de possibilités
-    return atLeastOnePossibility, partialPossibilities
+def AddPossibilityToMatrix(possibility, partialPossibilities) :
+    # Il faut faire attention au cas ou possibility est vide
+    if possibility.size == 0:
+        return partialPossibilities
+    # S'il n'y a aucune possibilité encore dans partialPossibilities
+    elif partialPossibilities.size == 0 :
+        return possibility
+    else :
+        return np.vstack((partialPossibilities, possibility))
 
+def FinishPossibility(partialPossibility, gridLineLength) : # Renvoie possibility
+    # On commence par remplir l'espace à droite de croix
+    spaceLeft = gridLineLength - len(partialPossibility)
+    for k in range(spaceLeft) :
+        partialPossibility.append(2)
+    # C'est maintenant une possibilité toute prête sortie du four
+    possibility = partialPossibility
+    # On transforme possibility en array numpy pour la convénience
+    possibility = np.array(possibility)
+    possibility = possibility.reshape(1,possibility.shape[0]) # Pour éviter des bugs à la concaténation
+    
+    return possibility
+
+def MakeNewPartialPossibility(possIndex, oldPartialPossibility, currentNumber) : # Renvoie newPartialPossibility
+    '''
+    possIndex indique la combien-t-ième possibilité est-ce qu'on est en train de faire
+    '''
+    # On insère les croix (quand i = 0 il n'y en a pas, car on place notre nombre tout à gauche)
+    newPartialPossibility = oldPartialPossibility
+    for k in range(possIndex):
+        newPartialPossibility.append(2)
+    # Puis on ajoute notre nombre
+    for k in range(currentNumber) :
+        newPartialPossibility.append(1)
+    
+    return newPartialPossibility
+    
+def CheckErrorPartialPossibility(partialPossibility, gridLine) : # Renvoie error
+    print("CheckErrorPartialPossibility")
+    # On vérifie que la possibilité partielle correspond à ce qui est déjà connu sur la grille
+    for i, cell in enumerate(partialPossibility) :
+        # S'il y a une différence avec la grille, we not good
+        if (gridLine[i] != 0) & (cell != gridLine[i]) :
+            print("Erreur")
+            print("partialPossibility :", partialPossibility, "gridLine :", gridLine)
+            return True
+    
+    # Si tout s'est bien passé
+    print("Pas d'erreur")
+    print("partialPossibility :", partialPossibility, "gridLine :", gridLine)
+    return False
+        
+def FindNbPossibilities(numbersLeft, gridLineLength, partialPossibilityLength) :
+    spaceNeeded = sum(numbersLeft) + (len(numbersLeft)-1) # l'espace que prends le remplissage + l'espace que prennent les croix
+    spaceLeft = gridLineLength - partialPossibilityLength # l'espace qui n'est pas pris par "partialPossibility
+    return spaceLeft+1 - spaceNeeded # le nombre de placement possibles pour notre nombre courant
+    
+def Pause() :
+    global pause
+    global pauseMod
+    pause = True
+    while pause & pauseMod :
+        CheckUserInput()
+        
+# ---------- Utiles ----------
 def findMaxLength(listes):
     maxLength = 0
     for liste in listes :
@@ -348,51 +516,17 @@ def findMaxLength(listes):
             maxLength = currentLength
     return maxLength
 
-def CheckErrors(grid, newlyPlacedThings, linNumbers, colNumbers) :
-    # le but est de vérifier pour chaque croix et chaque remplissage qui viennent d'être placés
-    # s'il n'engendrent pas d'erreur, cad qu'ils ne réduisent pas à 0 le nombre de possibilité
-    # dans leurs colonnes et lignes respectives
-    
-    # "newlyPlacedThings" est une grille qui contient uniquement ce qui vient d'être placé
-    # "grid" contient aussi les éléments qui viennent d'être placés
-    
-    # On commence par calculer dans quelles colonnes est ce qu'on va faire nos vérifications
-    linesToCheck, colsToCheck = np.where(newlyPlacedThings != 0)
-    
-    # On commence la vérification par les lignes
-    for i in linesToCheck :
-        res = FindPossibilitiesInLine([], linNumbers[i].copy(), grid[i,:], 0, checkAtLeastOnePossibility=True)
-        if res[0] == False :
-            print(f"Check Errors line {i}, noErrors = False")
-            print("guide numbers :", linNumbers)
-            return True
-    # Ensuite les colonnes
-    for j in colsToCheck :
-        res = FindPossibilitiesInLine([], colNumbers[j].copy(), grid[:,j], 0, checkAtLeastOnePossibility=True)
-        if res[0] == False :
-            print(f"Check Errors column {j}, noErrors = False")
-            print("guide numbers :", colNumbers)
-            return True
-    # Si on a rien trouvé, on retourne False
-    print("hey2")
-    return False
-
 def RemoveDuplicatesFromList(listyBoy):
     # Transformer en dict enlève les duplications pcq il peut pas y avoir 2 fois la même clé
     return list(dict.fromkeys(listyBoy))
 
-def Pause() :
-    global pause
-    global pauseMod
-    pause = True
-    while pause & pauseMod :
-        CheckPause()
 
-# ----------------------------------------
-# ----------- Tkinter methods ------------
-# ----------------------------------------
+# ---------- Tkinter ----------
+def ShowStep(solGrid) :
+    ShowGrid(solGrid, solGridDrawSize, solGridPos, showProbas)
+    ScreenRefresh()
 
-def CheckPause() :
+def CheckUserInput() :
     # On a juste besoin de refresh la fenêtre pour check si on appuie sur une touche
     ScreenRefresh()
 
@@ -522,72 +656,87 @@ def showGuideNumbers() :
             textY = canvasPos[1] + (i+0.5) * canvasSize[1] / maxNbNumbers + yShift
             text.place(x = textX, y = textY, anchor = tk.CENTER)
     canvas.place(x = canvasPos[0] - (borderWidth+1), y = canvasPos[1])
-    
-    '''
-    nbColonnes = len(colGuideNumbers)
-    maxNbNumbers = findMaxLength(colGuideNumbers)
-    for i, numbers in enumerate(colGuideNumbers) :
-        for j, number in enumerate(numbers) :
-            
-            text = tk.Label(window, text = str(number), justify = "center", anchor = tk.CENTER)
-            x = gridPos[0] + i * gridDrawSize[0] / nbColonnes
-            y = j * gridPos[1] / maxNbNumbers
-            text.place(x = x, y = y)
-            '''
-            
-# ----------------------------------------------
-# ---------- Programme hors graphique ----------
-# ----------------------------------------------
 
-# Création de nombres random
+
+
+
+
+# ------------------------------------------------------------
+# -------------------- CORPS DU PROGRAMME --------------------
+# ------------------------------------------------------------
+
+# ---------- Génération ----------
 linGuideNumbers, colGuideNumbers = findNumbers(grid, gridSize)
 
-# Résolution
-#ClearGrid()
+
+# ---------- Tkinter ----------
+if showTkinter :
+    # Window settings
+    window = tk.Tk()
+    window.geometry(f"{winSize[0]}x{winSize[1]}")
+    window.title("Picross Solver")
+    window["bg"] = "white"
+    window.resizable(height = False, width = False)
+    
+    # Grids
+    # Base grid
+    ShowGrid(grid, gridDrawSize, gridPos)
+    # Solution grid
+    ShowGrid(solutionGrid, solGridDrawSize, solGridPos, showProbas)
+    # Guide Numbers
+    showGuideNumbers()
+    
+    # Pause Things
+    # Binds
+    window.bind("<Button-1>", Clic) # Joue "clic" quand le clic gauche de la souris est appuyé
+    window.bind("<space>", SpacePressed)
+    window.bind("<Return>", ReturnPressed)
+    # UI
+    pauseModLabel = tk.Label(window, text = f"pause mod : {pauseMod}")
+    pauseLabel = tk.Label(window, text = f"Pause : {pause}")
+    pauseModLabel.pack(side=tk.TOP, anchor=tk.NW)
+    pauseLabel .pack(side=tk.TOP, anchor=tk.NW)
+    
+    
+    # We start the solving after the tkinter settings because we want to show the process
+    solutionGrid = Solve( linGuideNumbers, colGuideNumbers, gridSize)
+    
+    
+    window.mainloop()
 
 
-# ---------- zone de test ----------
+# ---------------------------------------------------
+# -------------------- Test zone --------------------
+# ---------------------------------------------------
+
+solutionGrid = Solve( linGuideNumbers, colGuideNumbers, gridSize)
+
 '''
-numbers = [2,2]
+# ---------- FindPossibilitiesInLine() ----------
+print("---------- Test FindPossibilitiesInLine() :")
+guideNumbers = [1, 2]
 gridLine = [0,0,0,0,0]
-print(FindProbasInLine(numbers, gridLine)[0])
+print("linGuideNumbers :", guideNumbers)
+print("gridline :", gridLine)
+print("possibilities :\n", FindPossibilitiesInLine(guideNumbers.copy(), gridLine))
+# Good !
 '''
-#print((FindProbas(colGuideNumbers, solutionGrid, 1))[0])
-#print(FindProbas(linGuideNumbers, SolutionGrid, 0)[0])
-# ----------------------------------
+'''
+# ---------- FindProbasInLine() ----------
+print("---------- Test FindProbasInLine() :")
+#guideNumbers = [2,1,3]
+#gridLine = [0,1,0,0,0,0,0,0,0,0]
+#print("linGuideNumbers :", guideNumbers)
+#print("gridline :", gridLine)
+print("probas :\n",FindProbasInLine(guideNumbers.copy(), gridLine)[1][0])
+# Good !
+'''
+'''
+# ---------- FindProbas() ----------
+print("---------- Test FindProbas() :")
+print("grid :\n",grid)
+print("linguideNumbers :", linGuideNumbers)
+print("Probas :\n", (FindProbas(linGuideNumbers, np.zeros(gridSize), axis = 0))[1][0])
+# Good !
+'''
 
-
-
-# --------------------------------------
-# ---------- Aspect graphique ----------
-# --------------------------------------
-
-window = tk.Tk()
-window.geometry(f"{winSize[0]}x{winSize[1]}")
-window.title("Picross Solver")
-window["bg"] = "white"
-window.resizable(height = False, width = False)
-
-# Base grid
-ShowGrid(grid, gridDrawSize, gridPos)
-
-# Solution grid
-ShowGrid(SolutionGrid, solGridSize, solGridPos, showProbas = True)
-
-# Guide Numbers
-showGuideNumbers()
-
-# Pause
-window.bind("<Button-1>", Clic) # Joue "clic" quand le clic gauche de la souris est appuyé
-window.bind("<space>", SpacePressed)
-window.bind("<Return>", ReturnPressed)
-
-pauseModLabel = tk.Label(window, text = f"pause mod : {pauseMod}")
-pauseLabel = tk.Label(window, text = f"Pause : {pause}")
-
-pauseModLabel.pack(side=tk.TOP, anchor=tk.NW)
-pauseLabel .pack(side=tk.TOP, anchor=tk.NW)
-
-SolutionGrid = Solve(solutionGrid, linGuideNumbers, colGuideNumbers, gridSize)
-
-window.mainloop()
